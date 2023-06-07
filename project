@@ -1,0 +1,412 @@
+from tkinter import filedialog
+import os
+
+
+def get_filepath() -> str:
+    # retorna uma string com o path do arquivo
+    return filedialog.askopenfilename()
+
+
+def get_file_lines(filepath: str) -> list:
+    # Cada elemento da lista retornada é uma linha do arquivo
+    with open(filepath, 'r') as file:
+        return file.readlines()
+
+
+def adjust_imm_to_hexa(imm: str, n: int) -> str:
+    #transforma imediato para hexa
+    if imm[0] == "-":
+        imm = complemento_2(int(imm), 16)
+        imm = hex(int(imm, base=2))
+        while len(imm) < 10: #ajusta para 8 bytes
+            imm = '0xf' + imm[2:]
+    elif imm.isdecimal():
+        imm = hex(int(imm))
+    while len(imm) < 10: #ajusta para 8 bytes
+        imm = '0x0' + imm[2:]
+    if len(imm) > 10:
+        imm = '0x' + imm[3:]
+    return imm
+
+
+def bin_to_dec(n: str) -> int:
+    return int(n, base = 2)
+
+
+def hex_to_dec(n: str) -> int:
+    return int(n, base = 16)
+
+
+def bin_to_hex(n_to_convert: str, n_of_bits: int) -> str: #bin para hexa
+    s = bin_to_dec(n_to_convert)
+    h = hex(s)[2:].zfill(n_of_bits)
+    return h
+
+
+def create_mif_file(instructions: list, a: str = 'text'): #cria arquivo mif .text
+    path = '/'.join(filepath.split('/')[0:-1])
+    filename = filepath.split('/')[-1]
+    with open(f"{path}/{filename.split('.')[0]}_{a}.mif", 'w', encoding="utf-8") as arquivo:
+        arquivo.write(f'DEPTH = {file_depth};\n')  # Como calcular depth ? == numero de instruções x qtd bits x width
+        arquivo.write('WIDTH = 32;\n')  # é 32 pq estamos trabalhando com um processador que os registradores trabalham em 32 bits
+        arquivo.write('ADDRESS_RADIX = HEX;\n')
+        arquivo.write('DATA_RADIX = HEX;\n')
+        arquivo.write('CONTENT\n')
+        arquivo.write('BEGIN\n\n')
+        for n, instruction in enumerate(instructions):
+            arquivo.write(f'{hex(n)[2:].zfill(8)} : {instruction};\n')
+        arquivo.write('\nEND;')
+
+
+def generate_label_address(instructions: list): #gerando end labels
+    labels = {}
+    for n, i in enumerate(instructions):
+        if ":" in i[0]:
+            address = hex(hex_to_dec('00100000') + n)[2:].zfill(8)
+            labels[i[0][0:-1]] = address
+    return labels
+
+
+def complemento_2(numero: int, n_bits: int) -> str: #retorna complemento de 2
+    if numero >= 0:
+        return bin(numero)[2:].zfill(n_bits)
+    else:
+        a = bin(abs(numero))[2:].zfill(n_bits)
+        b = ''
+        for c in a:
+            if c == '0':
+                b += '1'
+            else:
+                b += '0'
+        c = bin_to_dec(b) + 1
+        return bin(c)[2:].zfill(n_bits)
+
+
+def get_base_offset(com: str):
+    base = registers[com.replace("(", " ").replace(")", " ").split()[1]]  # str bin '00000'
+    offset = com.replace("(", " ").replace(")", " ").split()[0]  # str int '10'
+    return (base, offset)
+
+#dicio dos registradores
+registers = {"$zero": "00000", "$at": "00001", "$v0": "00010", "$v1": "00011",
+             "$a0": "00100", "$a1": "00101", "$a2": "00110", "$a3": "00111",
+             "$t0": "01000", "$t1": "01001", "$t2": "01010", "$t3": "01011",
+             "$t4": "01100", "$t5": "01101", "$t6": "01110", "$t7": "01111",
+             "$s0": "10000", "$s1": "10001", "$s2": "10010", "$s3": "10011",
+             "$s4": "10100", "$s5": "10101", "$s6": "10110", "$s7": "10111",
+             "$t8": "11000", "$t9": "11001", "$k0": "11010", "$k1": "11011",
+             "$gp": "11100", "$sp": "11101", "$fp": "11110", "$ra": "11111",
+             "$f0": "00000", "$f1": "00001", "$f2": "00010", "$f3": "00011",
+             "$f4": "00100", "$f5": "00101", "$f6": "00110", "$f7": "00111",
+             "$f8": "01000", "$f9": "01001", "$f10": "01010", "$f11": "01011",
+             "$f12": "01100", "$f13": "01101", "$f14": "01110", "$f15": "01111",
+             "$f16": "10000", "$f17": "10001", "$f18": "10010", "$f19": "10011",
+             "$f20": "10100", "$f21": "10101", "$f22": "10110", "$f23": "10111",
+             "$f24": "11000", "$f25": "11001", "$f26": "11010", "$f27": "11011",
+             "$f28": "11100", "$f29": "11101", "$f30": "11110", "$f31": "11111",
+             "$0": "00000", "$1": "00001", "$2": "00010", "$3": "00011",
+             "$4": "00100", "$5": "00101", "$6": "00110", "$7": "00111",
+             "$8": "01000", "$9": "01001", "$10": "01010", "$11": "01011",
+             "$12": "01100", "$13": "01101", "$14": "01110", "$15": "01111",
+             "$16": "10000", "$17": "10001", "$18": "10010", "$19": "10011",
+             "$20": "10100", "$21": "10101", "$22": "10110", "$23": "10111",
+             "$24": "11000", "$25": "11001", "$26": "11010", "$27": "11011",
+             "$28": "11100", "$29": "11101", "$30": "11110", "$31": "11111"
+             }
+
+#construct do tipo r com 3 registradores
+construct_bin_3r = {"add": lambda rd, rs, rt: f'000000{registers[rs]}{registers[rt]}{registers[rd]}00000100000',
+                    "sub": lambda rd, rs, rt: f'000000{registers[rs]}{registers[rt]}{registers[rd]}00000100010',
+                    "and": lambda rd, rs, rt: f'000000{registers[rs]}{registers[rt]}{registers[rd]}00000100100',
+                    "or": lambda rd, rs, rt: f'000000{registers[rs]}{registers[rt]}{registers[rd]}00000100101',
+                    "nor": lambda rd, rs, rt: f'000000{registers[rs]}{registers[rt]}{registers[rd]}00000100111',
+                    "xor": lambda rd, rs, rt: f'000000{registers[rs]}{registers[rt]}{registers[rd]}00000100110',
+                    "slt": lambda rd, rs, rt: f'000000{registers[rs]}{registers[rt]}{registers[rd]}00000101010',
+                    "mul": lambda rd, rs, rt: f'011100{registers[rs]}{registers[rt]}{registers[rd]}00000000010',
+                    "addu": lambda rd, rs, rt: f'000000{registers[rs]}{registers[rt]}{registers[rd]}00000100001',
+                    "subu": lambda rd, rs, rt: f'000000{registers[rs]}{registers[rt]}{registers[rd]}00000100011',
+                    "srav": lambda rd, rt, rs: f'000000{registers[rs]}{registers[rt]}{registers[rd]}00000000111',
+                    "movn": lambda rd, rs, rt: f'000000{registers[rs]}{registers[rt]}{registers[rd]}00000001011',
+                    "sltu": lambda rd, rs, rt: f'000000{registers[rs]}{registers[rt]}{registers[rd]}00000101011',
+                    "add.s": lambda fd, fs, ft: f'01000110000{registers[ft]}{registers[fs]}{registers[fd]}000000',
+                    "add.d": lambda fd, fs, ft: f'01000110001{registers[ft]}{registers[fs]}{registers[fd]}000000',
+                    "sub.s": lambda fd, fs, ft: f'01000110000{registers[ft]}{registers[fs]}{registers[fd]}000001',
+                    "sub.d": lambda fd, fs, ft: f'01000110001{registers[ft]}{registers[fs]}{registers[fd]}000001',
+                    "mul.s": lambda fd, fs, ft: f'01000110000{registers[ft]}{registers[fs]}{registers[fd]}000010',
+                    "mul.d": lambda fd, fs, ft: f'01000110001{registers[ft]}{registers[fs]}{registers[fd]}000010',
+                    "div.s": lambda fd, fs, ft: f'01000110000{registers[ft]}{registers[fs]}{registers[fd]}000011',
+                    "div.d": lambda fd, fs, ft: f'01000110001{registers[ft]}{registers[fs]}{registers[fd]}000011',
+                    "sll": lambda rd, rt, sa: f'00000000000{registers[rt]}{registers[rd]}{bin(int(sa))[2:].zfill(5)}000000',
+                    "srl": lambda rd, rt, sa: f'00000000000{registers[rt]}{registers[rd]}{bin(int(sa))[2:].zfill(5)}000010',
+                    "sra": lambda rd, rt, sa: f'00000000000{registers[rt]}{registers[rd]}{bin(int(sa))[2:].zfill(5)}000011'
+                    }
+
+#construct tipo r com 2 registradores
+construct_bin_2r = {"c.eq.s": lambda fs, ft: f'01000110000{registers[ft]}{registers[fs]}00000110010',
+                    "c.eq.d": lambda fs, ft: f'01000110001{registers[ft]}{registers[fs]}00000110010',
+                    "mult": lambda rs, rt: f'000000{registers[rs]}{registers[rt]}0000000000011000',
+                    "div": lambda rs, rt: f'000000{registers[rs]}{registers[rt]}0000000000011010',
+                    "madd": lambda rs, rt: f'011100{registers[rs]}{registers[rt]}0000000000000000',
+                    "msubu": lambda rs, rt: f'011100{registers[rs]}{registers[rt]}0000000000000101',
+                    "teq": lambda rs, rt: f'000000{registers[rs]}{registers[rt]}0000000000110100',
+                    "tge": lambda rs, rt: f'000000{registers[rs]}{registers[rt]}0000000000110000',
+                    "tgeu": lambda rs, rt: f'000000{registers[rs]}{registers[rt]}0000000000110001',
+                    "tne": lambda rs, rt: f'000000{registers[rs]}{registers[rt]}0000000000110110',
+                    "clo": lambda rd, rs: f'011100{registers[rs]}00000{registers[rd]}00000100001'
+                    }
+
+#construct tipo r com 1 registrador
+construct_bin_1r = {"jalr": lambda rs: f'000000{registers[rs]}000001111100000001001',
+                    "jr": lambda rs: f'000000{registers[rs]}000000000000000001000',
+                    "mfhi": lambda rd: f'0000000000000000{registers[rd]}00000010000',
+                    "mflo": lambda rd: f'0000000000000000{registers[rd]}00000010010'
+                    }
+
+#construct para instrucoes tipo j
+construct_bin_j = {"j": lambda idx: f'000010{idx}',
+                   "jal": lambda idx: f'000011{idx}'
+                   }
+
+#construct instrucoes tipo i com 3 regs
+construct_bin_3i = {"ori": lambda rt, rs, imm: f'001101{registers[rs]}{registers[rt]}{imm}',
+                    "andi": lambda rt, rs, imm: f'001100{registers[rs]}{registers[rt]}{imm}',
+                    "addi": lambda rt, rs, imm: f'001000{registers[rs]}{registers[rt]}{imm}',
+                    "addiu": lambda rt, rs, imm: f'001001{registers[rs]}{registers[rt]}{imm}',
+                    "xori": lambda rt, rs, imm: f'001110{registers[rs]}{registers[rt]}{imm}',
+                    "slti": lambda rt, rs, imm: f'001010{registers[rs]}{registers[rt]}{imm}'
+                    }
+
+construct_bin_3b = {"beq": lambda rs, rt, offset: f'000100{registers[rs]}{registers[rt]}{offset}',
+                    "bne": lambda rs, rt, offset: f'000101{registers[rs]}{registers[rt]}{offset}'}
+
+construct_bin_2b = {"bgez": lambda rs, offset: f'000001{registers[rs]}00001{offset}',
+                    "bgezal": lambda rs, offset: f'000001{registers[rs]}10001{offset}'}
+
+construct_bin_3oi = {"lh": lambda rt, base, offset: f'100001{base}{registers[rt]}{offset}',
+                     "lhu": lambda rt, base, offset: f'100101{base}{registers[rt]}{offset}',
+                     "sb": lambda rt, base, offset: f'101000{base}{registers[rt]}{offset}',
+                     "lb": lambda rt, base, offset: f'100000{base}{registers[rt]}{offset}',
+                     "lw": lambda rt, base, offset: f'100011{base}{registers[rt]}{offset}',
+                     "sw": lambda rt, base, offset: f'101011{base}{registers[rt]}{offset}'
+                     }
+
+#construct tipo i com reg e imm
+construct_bin_2i = {"lui": lambda rt, imm: f'00111100000{registers[rt]}{imm}',
+                    "tgei": lambda rs, imm: f'000001{registers[rs]}01000{imm}',
+                    "tnei": lambda rs, imm: f'000001{registers[rs]}01110{imm}'
+                    }
+
+
+# main =======================
+
+# Escolha do arquivo
+while True:
+    print("Escolha um arquivo .asm")
+    filepath = get_filepath()
+    if filepath == "" or filepath.split(".")[-1] != "asm":
+        continue
+    break
+
+# Salva as linhas do arquivo numa lista
+file_lines = get_file_lines(filepath)
+
+# Cria duas listas para salvar as instruções de cada escopo em listas separadas
+data = list()
+text = list()
+
+data_scope = False
+text_scope = False
+
+# Remove \n do fim das linhas
+aux = list()
+for line in file_lines:
+    if "\n" in line:
+        aux.append(line[0:-1])
+    else:
+        aux.append(line)
+
+file_lines = aux[:]
+
+# Colaca as instruções do .data e .text em duas listas separadas
+for line in file_lines:
+    if line == ".data":
+        data_scope = True
+        text_scope = False
+        continue
+    elif line == ".text":
+        data_scope = False
+        text_scope = True
+        continue
+
+    if data_scope and line not in " ":
+        data.append(line.replace(",", " ").split())
+    elif text_scope and line not in " ":
+        text.append(line.replace(",", " ").split())
+    # Cada elemento da lista é uma lista com forma ["add", "$t0", "$t1", "$t2"]
+
+file_depth = len(text) * 8 * 32
+
+#Transformar imm em hexa, gerar possíveis instruções extras e sobrescrever em text
+extra = list()
+for a in range(len(text)):
+    if text[a][0] in construct_bin_3i:
+        text[a][3] = adjust_imm_to_hexa(text[a][3], 3)
+    elif text[a][0] in construct_bin_2i:
+        text[a][2] = adjust_imm_to_hexa(text[a][2], 2)
+            
+    if text[a][0] in ["li"]:
+        rt = text[a][1]
+        if int(text[a][2], base = 16) < 32768:
+            text[a] = ["addiu", text[a][1], '$0', text[a][2]]
+        elif 32767 < int(text[a][2], base = 16) < 65536:
+            text[a] = ["ori", text[a][1], '$0', text[a][2]]
+        elif 65535 < int(text[a][2], base = 16) < 4294934528:
+            extra.append((a, ["ori", rt, '$1', '0x0000' + text[a][2][6:]]))
+            if text[a][2][3] in '89abcdef': ######
+                text[a] = ["lui", "$1", '0xffff' + text[a][2][2:6]]
+            else:
+                text[a] = ["lui", "$1", '0x0000' + text[a][2][2:6]]
+        else:
+            text[a] = ["addiu", text[a][1], '$0', text[a][2][6:]]
+    
+    if text[a][0] == "move":
+        text[a] = ["addu", text[a][1], "$0", text[a][2]]
+        
+    if text[a][0] in ["ori", "andi", "xori"]:
+        rt = text[a][1]
+        rs = text[a][2]
+        if int(text[a][3], base = 16) > 65535:
+            extra.append((a, ["ori", '$1', '$1', '0x0000' + text[a][3][6:]]))
+            extra.append((a, [text[a][0][:-1], rt, rs, '$1']))
+            if text[a][3][3] in '89abcdef': ######
+                text[a] = ["lui", "$1", '0xffff' + text[a][3][2:6]]
+            else:
+                text[a] = ["lui", "$1", '0x0000' + text[a][3][2:6]]
+                
+    if text[a][0] in ["addi", "addiu"]:
+        rt = text[a][1]
+        rs = text[a][2]
+        if 32767 < int(text[a][3], base = 16) < 4294934528:
+            extra.append((a, ["ori", '$1', '$1', '0x0000' + text[a][3][6:]]))
+            if text[a][0] == "addiu":
+                extra.append((a, ["addu", rt, rs, '$1']))
+            else:
+                extra.append((a, [text[a][0][:-1], rt, rs, '$1']))
+            if text[a][3][3] in '89abcdef': ######
+                text[a] = ["lui", "$1", '0xffff' + text[a][3][2:6]]
+            else:
+                text[a] = ["lui", "$1", '0x0000' + text[a][3][2:6]]
+        
+for a in extra[::-1]:
+    text.insert(a[0]+1, a[1])
+
+
+# Calcula endereços das labels
+labels_addresses: dict = generate_label_address(text)
+
+# Converte instruções para hexadecimal e salva em text_hex
+text_hex = list()
+for a in text:  # revisar as condições só pra ter certeza
+    if ":" in a[0] and len(a) > 1:
+        i = a[1:]
+    else:
+        i = a[:]
+    if i[0] in construct_bin_3r:
+        text_hex.append(bin_to_hex(construct_bin_3r[i[0]](i[1], i[2], i[3]), 8))
+    elif i[0] in construct_bin_2r:
+        text_hex.append(bin_to_hex(construct_bin_2r[i[0]](i[1], i[2]), 8))
+    elif i[0] in construct_bin_1r:
+        text_hex.append(bin_to_hex(construct_bin_1r[i[0]](i[1]), 8))
+    elif i[0] in construct_bin_j:
+        l = bin(hex_to_dec(labels_addresses[i[1]]))[2:].zfill(26)
+        text_hex.append(bin_to_hex(construct_bin_j[i[0]](l), 8))
+    elif i[0] in construct_bin_3i:
+        l = complemento_2(int(i[3], base = 16), 16)
+        if len(l) > 16:
+            l = l[16:]
+        text_hex.append(bin_to_hex(construct_bin_3i[i[0]](i[1], i[2], l), 8))
+    elif i[0] in construct_bin_3oi:
+        b, o = get_base_offset(i[2])
+        o = complemento_2(int(o), 16)
+        text_hex.append(bin_to_hex(construct_bin_3oi[i[0]](i[1], b, o), 8))
+    elif i[0] in construct_bin_2i:
+        l = complemento_2(int(i[2], base = 16), 16)
+        if len(l) > 16:
+            l = l[16:]
+        text_hex.append(bin_to_hex(construct_bin_2i[i[0]](i[1], l), 8))
+    elif i[0] in construct_bin_3b:
+        l = bin(hex_to_dec(labels_addresses[i[3]]))[2:].zfill(16)
+        text_hex.append(bin_to_hex(construct_bin_3b[i[0]](i[1], i[2], l), 8))
+    elif i[0] in construct_bin_2b:
+        l = bin(hex_to_dec(labels_addresses[i[2]]))[2:].zfill(16)
+        text_hex.append(bin_to_hex(construct_bin_2b[i[0]](i[1], l), 8))
+
+# Cria o arquivo de saída *_text.mif
+create_mif_file(text_hex, a='text')
+
+print("Os arquivos de saída foram salvos no mesmo diretório que o arquivo de entrada.")
+#criando arquivo *data.mif
+##################################################################
+def calculo_depth(arquivo_path):
+    arquivo_path = filepath
+    with open(arquivo_path, 'r') as f:
+        lines = f.readlines()
+    secao_data = False
+    depth = 0
+    for line in lines:
+        line = line.strip()
+        if line == '.data':
+            secao_data = True
+        elif secao_data and line.startswith('.'):
+            break
+        elif secao_data and line:
+            aux = list()
+            a = line.replace(',', ' ').split()
+            for i in a:
+                if ':' not in i and '.' not in i:
+                    aux = i
+            depth = int(aux)
+            depth_ajuste = pow(8, depth)*32
+    return depth_ajuste
+def asm_mif_data(arquivo_asm_path, a: str = 'data'):
+    depth_ajuste = calculo_depth(arquivo_asm_path)
+    directory = os.path.dirname(arquivo_asm_path)
+    filename = os.path.basename(arquivo_asm_path)
+    base_filename = os.path.splitext(filename)[0]
+
+    with open(os.path.join(directory, f"{base_filename}_data.mif"), 'w') as f:
+        f.write('DEPTH = {};\n'.format(depth_ajuste))
+        f.write('WIDTH = 32;\n')
+        f.write('ADDRESS_RADIX = HEX;\n')
+        f.write('DATA_RADIX = HEX;\n')
+        f.write('CONTENT\n')
+        f.write('BEGIN\n')
+        f.write('\n')
+
+        with open(arquivo_asm_path, 'r') as asm_file:
+            lines = asm_file.readlines()
+        
+        secao_data = False
+        aux = []
+        depth = 0
+        for line in lines:
+            line = line.strip()
+            if line == '.data':
+                secao_data = True
+            if line == '.text':
+                secao_data = False
+            elif secao_data and not line.startswith('.'):
+                a = line.replace(',', ' ').split()
+                for i in a:
+                    if ':' not in i and '.' not in i and i.isdigit():
+                        aux.append(int(i))
+
+        lista = list(num for num in aux)
+        for item in lista:
+            itemstr = str(item).zfill(8)
+            f.write('{} : {};\n'.format(hex(depth)[2:].zfill(8), itemstr))
+            depth += 1
+        f.write('\n')
+        f.write('END;\n')
+
+asm_mif_data(filepath, a='data')
